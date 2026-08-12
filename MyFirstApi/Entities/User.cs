@@ -11,6 +11,7 @@ namespace MyFirstApi.Entities
         public string? Password { get; set;  }
         public string? TotpSecretKey { get; set; }
         public bool IsTotpEnabled { get; set; }
+        public string? SessionId { get; set; }
 
     }
 }
