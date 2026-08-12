@@ -50,16 +50,24 @@ namespace MyFirstApi.Services
 
                 var verifyPassword = passwordHasher.VerifyHashedPassword(dto.Email, existingUser.Password, dto.Password);
 
+                var sessionId = Guid.NewGuid().ToString();
+
                 if (verifyPassword == PasswordVerificationResult.Success)
                 {
                     UserDto user = new();
                     user.Email = dto.Email;
                     user.Id = existingUser.Id;
                     user.Name = existingUser.Name;
+                    user.SessionId = sessionId;
                     var token = GetJwtToken(user);
 
                     tokenDto.Token = token;
                     tokenDto.Message = "Login Successfull";
+
+                    existingUser.SessionId = sessionId;
+                    _context.AccountUsers.Update(existingUser);
+                    _context.SaveChanges();
+
 
                     return new Tuple<int, TokenDto>(2, tokenDto);
                 }
@@ -69,9 +77,11 @@ namespace MyFirstApi.Services
                     user.Email = existingUser.Email;
                     user.Id = existingUser.Id;
                     user.Name = existingUser.Name;
+                    user.SessionId = sessionId;
                     var token = GetJwtToken(user);
 
                     existingUser.Password = PasswordHashing(dto);
+                    existingUser.SessionId = sessionId;
 
                     _context.AccountUsers.Update(existingUser);
                     _context.SaveChanges();
@@ -110,10 +120,11 @@ namespace MyFirstApi.Services
             {
                 new Claim(ClaimTypes.Name, dto.Name),
                 new Claim(ClaimTypes.Email , dto.Email),
-                new Claim(ClaimTypes.NameIdentifier, dto.Id.ToString())
+                new Claim(ClaimTypes.NameIdentifier, dto.Id.ToString()),
+                new Claim("session_id", dto.SessionId)
             };
 
-            var key = new SymmetricSecurityKey(Convert.FromHexString("04b83dfe0e9dadbc32f4354525b521412f0527beff39812c0dcf602aa1b5a648"));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("04b83dfe0e9dadbc32f4354525b521412f0527beff39812c0dcf602aa1b5a648"));
 
             var jwtHandler = new JwtSecurityTokenHandler();
 
@@ -127,7 +138,7 @@ namespace MyFirstApi.Services
                 Issuer = "rohan-client",
                 Audience = "rohan-backend",
                 SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256Signature),
-                EncryptingCredentials = encryptionCredentials
+                
             };
 
             var token = jwtHandler.CreateToken(tokenDescriptor);
