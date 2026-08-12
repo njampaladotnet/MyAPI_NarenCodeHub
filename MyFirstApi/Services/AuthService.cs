@@ -4,6 +4,8 @@ using Microsoft.IdentityModel.Tokens;
 using MyFirstApi.Data;
 using MyFirstApi.Dto;
 using MyFirstApi.IService;
+using OtpNet;
+using QRCoder;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -176,7 +178,67 @@ namespace MyFirstApi.Services
 
         }
 
+        public async Task<string> GenerateQrCode(string email)
+        {
+            var existingUser = await _context.AccountUsers.FirstOrDefaultAsync(x => x.Email == email);
+            if (existingUser == null)
+            {
+                existingUser=  _context.AccountUsers.Add(new Entities.User
+                {
+                    Id = Guid.NewGuid(),
+                    Email = email,
+                    IsTotpEnabled = false
+                }).Entity;
 
+                await _context.SaveChangesAsync();
+            }
+
+            var result = GenerateTotpQrCode(email);
+            existingUser.TotpSecretKey = result.secret;
+            existingUser.IsTotpEnabled = false;
+             await _context.SaveChangesAsync();
+
+            return result.qrCode;
+
+        }
+
+        public async Task<string> VerifyOTP(string email, string otp)
+        {
+            var user = await _context.AccountUsers.FirstOrDefaultAsync(x => x.Email == email);
+
+            var key = Base32Encoding.ToBytes(user.TotpSecretKey);
+            var totp = new Totp(key);
+
+            var isValid = totp.VerifyTotp(otp, out long timeStepMatched, new VerificationWindow(2, 2));
+
+            if (!isValid)
+            {
+                return "Invalid OTP";
+
+            }
+            else
+            {
+                user.IsTotpEnabled = true;
+                await _context.SaveChangesAsync();
+                return "OTP Verified Successfully!";
+            }
+        }
+
+        private (string secret, string qrCode) GenerateTotpQrCode(string email)
+        {
+            var key = KeyGeneration.GenerateRandomKey(20);
+            var base32Secret = Base32Encoding.ToString(key);
+
+            var otpAuthUrl = $"otpauth://totp/MyApp:{email}?secret={base32Secret}&issuer=MyApp";
+
+            using var qrCodeGenerate = new QRCodeGenerator();
+            var qrCodeData = qrCodeGenerate.CreateQrCode(otpAuthUrl, QRCodeGenerator.ECCLevel.Q);
+            var qrCode = new PngByteQRCode(qrCodeData);
+
+            var qrCodeBytes = qrCode.GetGraphic(20);
+            var qrCodeBase64 = Convert.ToBase64String(qrCodeBytes);
+            return (base32Secret, qrCodeBase64);
+        }
 
     }
 }
